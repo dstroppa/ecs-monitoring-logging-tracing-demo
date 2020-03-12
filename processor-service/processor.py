@@ -17,15 +17,21 @@ import json
 import boto3
 import random
 import time
+import logging
 from aws_xray_sdk.core import xray_recorder
 from aws_xray_sdk.core import patch_all
 
+xray_recorder.configure(service='Job Processor')
+# plugins = ( 'ecs_plugin' )
+# xray_recorder.configure(plugins=plugins)
 patch_all()
+
+logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
 
 sqsqueue_name = os.environ['QUEUE_NAME']
 sqs = boto3.resource('sqs')
 
-
+@xray_recorder.capture('process_messages')
 def process_messages():
     """Process the message
 
@@ -34,10 +40,12 @@ def process_messages():
     the dead letter queue after five failed attempts.
 
     """
+    processed = 0
     for message in get_messages_from_sqs():
         try:
             message_content = json.loads(message.body)
-            
+            logging.info("Processing message: %s", message_content)
+
             throwError = random.randint(0,5)
             if throwError:
                errorMsg = 'FATAL: This message was not processed. Message: ' + message_content
@@ -48,8 +56,10 @@ def process_messages():
             continue
         else:
             message.delete()
+            processed+=1
+    logging.info("Processed %s messages from the queue.", processed)
 
-
+@xray_recorder.capture('get_messages_from_sqs')
 def get_messages_from_sqs():
     results = []
     queue = sqs.get_queue_by_name(QueueName=sqsqueue_name)
@@ -57,19 +67,28 @@ def get_messages_from_sqs():
                                           WaitTimeSeconds=20,
                                           MaxNumberOfMessages=10):
         results.append(message)
+    logging.info("Retrieved %s messages from the queue.", len(results))
     return(results)
     
     
 @xray_recorder.capture('hangingException')
 def hangingException(msg):
     time.sleep(5)
+    logging.error(msg)
     raise Exception(msg)
 
 
 def main():
     while True:
+        # Start a segment
+        xray_recorder.begin_segment('processor')
+
         process_messages()
 
+        # Close the segment
+        xray_recorder.end_segment('processor')
+
+        time.sleep(5)
 
 if __name__ == "__main__":
     main()

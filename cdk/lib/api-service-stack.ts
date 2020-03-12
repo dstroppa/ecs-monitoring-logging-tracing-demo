@@ -33,6 +33,21 @@ export class ApiServiceStack extends cdk.Stack {
     apiService.taskDefinition.addContainer("XRaySidecar", {
         image: ecs.ContainerImage.fromRegistry("amazon/aws-xray-daemon")
     });
+
+    const taskRolePolicy =  new iam.PolicyStatement();
+    taskRolePolicy.addActions(
+      //  Allows the ECS task to interact with X-Ray
+      "xray:PutTraceSegments",
+      "xray:PutTelemetryRecords",
+      "xray:GetSamplingRules",
+      "xray:GetSamplingTargets",
+      "xray:GetSamplingStatisticSummaries"
+    );
+    taskRolePolicy.addAllResources();
+
+    apiService.taskDefinition.addToTaskRolePolicy(
+     taskRolePolicy
+    );
     
   }
 }
